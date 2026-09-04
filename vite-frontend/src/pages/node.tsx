@@ -19,8 +19,12 @@ import {
   getNodeList, 
   updateNode, 
   deleteNode,
-  getNodeInstallCommand
+  getNodeInstallCommand,
+  syncNodeConfig,
+  syncAllNodeConfigs
 } from "@/api";
+import type { NodeSyncItem, NodeSyncResult } from "@/api";
+import { copyText } from "@/utils/clipboard";
 
 interface Node {
   id: number;
@@ -46,6 +50,7 @@ interface Node {
     uptime: number;
   } | null;
   copyLoading?: boolean;
+  syncLoading?: boolean;
 }
 
 interface NodeForm {
@@ -73,6 +78,11 @@ export default function NodePage() {
   const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
   const [protocolDisabled, setProtocolDisabled] = useState(false);
   const [protocolDisabledReason, setProtocolDisabledReason] = useState('');
+
+  // 配置推送
+  const [syncAllLoading, setSyncAllLoading] = useState(false);
+  const [syncResultModal, setSyncResultModal] = useState(false);
+  const [syncResults, setSyncResults] = useState<NodeSyncResult[]>([]);
   const [form, setForm] = useState<NodeForm>({
     id: null,
     name: '',
@@ -116,7 +126,8 @@ export default function NodePage() {
           ...node,
           connectionStatus: node.status === 1 ? 'online' : 'offline',
           systemInfo: null,
-          copyLoading: false
+          copyLoading: false,
+          syncLoading: false
         })));
       } else {
         toast.error(res.msg || '加载节点列表失败');
@@ -512,11 +523,10 @@ export default function NodePage() {
     try {
       const res = await getNodeInstallCommand(node.id);
       if (res.code === 0 && res.data) {
-        try {
-          await navigator.clipboard.writeText(res.data);
+        if (await copyText(res.data)) {
           toast.success('安装命令已复制到剪贴板');
-        } catch (copyError) {
-          // 复制失败，显示安装命令模态框
+        } else {
+          // 复制失败，改为弹窗展示供手动复制
           setInstallCommand(res.data);
           setCurrentNodeName(node.name);
           setInstallCommandModal(true);
@@ -533,13 +543,74 @@ export default function NodePage() {
     }
   };
 
+  // 推送面板配置到节点（换机后恢复配置）
+  const handleSyncConfig = async (node: Node) => {
+    setNodeList(prev => prev.map(n =>
+      n.id === node.id ? { ...n, syncLoading: true } : n
+    ));
+
+    try {
+      const res = await syncNodeConfig(node.id);
+      if (res.code !== 0 || !res.data) {
+        toast.error(res.msg || '推送配置失败');
+        return;
+      }
+      setSyncResults([res.data]);
+      setSyncResultModal(true);
+      if (res.data.ok) {
+        toast.success(`${node.name}：${formatSyncSummary(res.data)}`);
+      } else {
+        toast.error(`${node.name} 部分配置未成功`);
+      }
+    } catch (error) {
+      toast.error('推送配置失败');
+    } finally {
+      setNodeList(prev => prev.map(n =>
+        n.id === node.id ? { ...n, syncLoading: false } : n
+      ));
+    }
+  };
+
+  const handleSyncAllConfigs = async () => {
+    setSyncAllLoading(true);
+    try {
+      const res = await syncAllNodeConfigs();
+      if (res.code !== 0 || !res.data) {
+        toast.error(res.msg || '批量推送失败');
+        return;
+      }
+      const { successCount, failCount, results } = res.data;
+      setSyncResults(results);
+      setSyncResultModal(true);
+      if (failCount === 0) {
+        toast.success(`已推送 ${successCount} 个节点`);
+      } else {
+        toast.error(`成功 ${successCount} 个，失败 ${failCount} 个`);
+      }
+    } catch (error) {
+      toast.error('批量推送失败');
+    } finally {
+      setSyncAllLoading(false);
+    }
+  };
+
+  const formatSyncSummary = (result: NodeSyncResult) =>
+    `新增 ${result.added}，修复 ${result.repaired}，已存在 ${result.ensured}，跳过 ${result.skipped}，失败 ${result.failed}`;
+
+  const SYNC_ACTION_LABELS: Record<NodeSyncItem['action'], { text: string; color: 'success' | 'warning' | 'danger' | 'default' }> = {
+    ADDED: { text: '新增', color: 'success' },
+    ENSURED: { text: '已存在', color: 'default' },
+    REPAIRED: { text: '修复', color: 'warning' },
+    SKIPPED: { text: '跳过', color: 'default' },
+    FAILED: { text: '失败', color: 'danger' },
+  };
+
   // 手动复制安装命令
   const handleManualCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(installCommand);
+    if (await copyText(installCommand)) {
       toast.success('安装命令已复制到剪贴板');
       setInstallCommandModal(false);
-    } catch (error) {
+    } else {
       toast.error('复制失败，请手动选择文本复制');
     }
   };
@@ -614,16 +685,27 @@ export default function NodePage() {
         <div className="flex-1">
         </div>
 
-        <Button
+        <div className="flex items-center gap-3">
+            <Button
+              size="sm"
+              variant="flat"
+              color="secondary"
+              onPress={handleSyncAllConfigs}
+              isLoading={syncAllLoading}
+              title="把面板中的转发、转发链、限速配置补齐到所有在线节点"
+            >
+              批量推送配置
+            </Button>
+
+            <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
             >
               新增
             </Button>
-     
+        </div>
         </div>
 
         {/* 节点列表 */}
@@ -822,6 +904,20 @@ export default function NodePage() {
                         删除
                       </Button>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="secondary"
+                      onPress={() => handleSyncConfig(node)}
+                      isLoading={node.syncLoading}
+                      isDisabled={node.connectionStatus !== 'online'}
+                      className="w-full min-h-8"
+                      title={node.connectionStatus === 'online'
+                        ? '把面板中该节点的转发、转发链、限速配置补齐到节点'
+                        : '节点离线，无法推送配置'}
+                    >
+                      推送配置
+                    </Button>
                   </div>
                 </CardBody>
               </Card>
@@ -1028,6 +1124,75 @@ export default function NodePage() {
                 {submitLoading ? '提交中...' : '确定'}
               </Button>
             </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* 配置推送结果 */}
+        <Modal
+          isOpen={syncResultModal}
+          onOpenChange={setSyncResultModal}
+          size="2xl"
+          scrollBehavior="outside"
+          backdrop="blur"
+          placement="center"
+        >
+          <ModalContent>
+            {(onClose) => (
+              <>
+                <ModalHeader className="flex flex-col gap-1">
+                  <h2 className="text-lg font-bold">配置推送结果</h2>
+                </ModalHeader>
+                <ModalBody>
+                  <Alert color="primary">
+                    仅补齐节点上缺失的配置，不会重建已存在的服务，因此不会中断正在使用的连接。
+                  </Alert>
+                  <div className="space-y-3">
+                    {syncResults.map((result) => (
+                      <div key={result.nodeId} className="rounded border border-divider overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-default-50 dark:bg-default-100/40">
+                          <span className="text-sm font-medium text-foreground truncate">{result.nodeName}</span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-default-500">{formatSyncSummary(result)}</span>
+                            <Chip size="sm" variant="flat" color={result.ok ? 'success' : 'danger'} className="text-xs">
+                              {result.ok ? '成功' : '有失败项'}
+                            </Chip>
+                          </div>
+                        </div>
+                        {result.items.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-default-500">{result.message}</div>
+                        ) : (
+                          <div className="max-h-52 overflow-y-auto divide-y divide-divider">
+                            {result.items
+                              .filter(item => item.action !== 'SKIPPED')
+                              .map((item, index) => (
+                                <div key={`${item.type}-${item.name}-${index}`} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                  <code className="text-xs font-mono text-foreground truncate">{item.name}</code>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-xs text-default-500 truncate max-w-[220px]">{item.msg}</span>
+                                    <Chip
+                                      size="sm"
+                                      variant="flat"
+                                      className="text-xs"
+                                      color={SYNC_ACTION_LABELS[item.action].color}
+                                    >
+                                      {SYNC_ACTION_LABELS[item.action].text}
+                                    </Chip>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ModalBody>
+                <ModalFooter>
+                  <Button variant="light" onPress={onClose}>
+                    关闭
+                  </Button>
+                </ModalFooter>
+              </>
+            )}
           </ModalContent>
         </Modal>
 

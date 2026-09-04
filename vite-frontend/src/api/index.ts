@@ -23,12 +23,41 @@ export const updateUser = (data: any) => Network.post("/user/update", data);
 export const deleteUser = (id: number) => Network.post("/user/delete", { id });
 export const getUserPackageInfo = () => Network.post("/user/package");
 
+export interface NodeSyncItem {
+  type: string;
+  name: string;
+  action: 'ADDED' | 'ENSURED' | 'REPAIRED' | 'SKIPPED' | 'FAILED';
+  msg: string;
+}
+
+export interface NodeSyncResult {
+  nodeId: number;
+  nodeName: string;
+  ok: boolean;
+  message: string;
+  added: number;
+  ensured: number;
+  repaired: number;
+  skipped: number;
+  failed: number;
+  items: NodeSyncItem[];
+}
+
+export interface NodeSyncAllResult {
+  total: number;
+  successCount: number;
+  failCount: number;
+  results: NodeSyncResult[];
+}
+
 // 节点CRUD操作 - 全部使用POST请求
 export const createNode = (data: any) => Network.post("/node/create", data);
 export const getNodeList = () => Network.post("/node/list");
 export const updateNode = (data: any) => Network.post("/node/update", data);
 export const deleteNode = (id: number) => Network.post("/node/delete", { id });
 export const getNodeInstallCommand = (id: number) => Network.post("/node/install", { id });
+export const syncNodeConfig = (id: number) => Network.post<NodeSyncResult>("/node/sync", { id });
+export const syncAllNodeConfigs = () => Network.post<NodeSyncAllResult>("/node/sync-all");
 export const checkNodeStatus = (nodeId?: number) => {
   const params = nodeId ? { nodeId } : {};
   return Network.post("/node/check-status", params);
@@ -49,12 +78,28 @@ export const removeUserTunnel = (params: any) => Network.post("/tunnel/user/remo
 export const updateUserTunnel = (data: any) => Network.post("/tunnel/user/update", data);
 export const userTunnel = () => Network.post("/tunnel/user/tunnel");
 
+export interface BatchItemResult {
+  id: number;
+  name: string;
+  success: boolean;
+  msg: string;
+}
+
+export interface BatchResult {
+  total: number;
+  successCount: number;
+  failCount: number;
+  results: BatchItemResult[];
+}
+
 // 转发CRUD操作 - 全部使用POST请求
 export const createForward = (data: any) => Network.post("/forward/create", data);
 export const getForwardList = () => Network.post("/forward/list");
 export const updateForward = (data: any) => Network.post("/forward/update", data);
 export const deleteForward = (id: number) => Network.post("/forward/delete", { id });
 export const forceDeleteForward = (id: number) => Network.post("/forward/force-delete", { id });
+export const batchDeleteForward = (ids: number[], force = false) => Network.post<BatchResult>("/forward/batch-delete", { ids, force });
+export const batchChangeForwardStatus = (ids: number[], resume: boolean) => Network.post<BatchResult>("/forward/batch-status", { ids, resume });
 
 // 转发服务控制操作 - 通过Java后端接口
 export const pauseForwardService = (forwardId: number) => Network.post("/forward/pause", { id: forwardId });
