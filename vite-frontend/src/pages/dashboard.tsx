@@ -3,6 +3,7 @@ import { Button } from "@heroui/button";
 import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
 import { useState, useEffect } from "react";
 import toast from 'react-hot-toast';
+import { copyWithToast } from "@/utils/clipboard";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 
@@ -561,24 +562,17 @@ export default function DashboardPage() {
   };
 
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`已复制`);
-    } catch (error) {
-      toast.error('复制失败');
-    }
+    await copyWithToast(text, '');
   };
 
   const copyAddress = async (addressItem: AddressItem) => {
+    setAddressList(prev => prev.map(item =>
+      item.id === addressItem.id ? { ...item, copying: true } : item
+    ));
     try {
-      setAddressList(prev => prev.map(item => 
-        item.id === addressItem.id ? { ...item, copying: true } : item
-      ));
-      await copyToClipboard(addressItem.address);
-    } catch (error) {
-      toast.error('复制失败');
+      await copyWithToast(addressItem.address, '');
     } finally {
-      setAddressList(prev => prev.map(item => 
+      setAddressList(prev => prev.map(item =>
         item.id === addressItem.id ? { ...item, copying: false } : item
       ));
     }
