@@ -4,6 +4,7 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.dto.FlowDto;
 import com.admin.common.dto.GostConfigDto;
 import com.admin.common.task.CheckGostConfigAsync;
+import com.admin.common.task.NodeConfigSyncAsync;
 import com.admin.common.utils.AESCrypto;
 import com.admin.common.utils.GostUtil;
 import com.admin.entity.*;
@@ -67,6 +68,9 @@ public class FlowController extends BaseController {
     CheckGostConfigAsync checkGostConfigAsync;
 
     @Resource
+    NodeConfigSyncAsync nodeConfigSyncAsync;
+
+    @Resource
     @Lazy
     ChainTunnelService chainTunnelService;
 
@@ -117,6 +121,7 @@ public class FlowController extends BaseController {
             // 解析为GostConfigDto
             GostConfigDto gostConfigDto = JSON.parseObject(decryptedData, GostConfigDto.class);
             checkGostConfigAsync.cleanNodeConfigs(node.getId().toString(), gostConfigDto);
+            nodeConfigSyncAsync.syncReportedConfig(node.getId(), gostConfigDto);
 
             log.info("🔓 节点 {} 配置数据接收成功{}", node.getId(), isEncryptedMessage(rawData) ? "（已解密）" : "");
 

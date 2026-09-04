@@ -4,6 +4,7 @@ package com.admin.common.utils;
 import com.admin.common.dto.GostConfigDto;
 import com.admin.common.dto.GostDto;
 import com.admin.common.task.CheckGostConfigAsync;
+import com.admin.common.task.NodeConfigSyncAsync;
 import com.admin.entity.Node;
 import com.admin.service.NodeService;
 import com.alibaba.fastjson.JSON;
@@ -30,6 +31,9 @@ public class WebSocketServer extends TextWebSocketHandler {
 
     @Resource
     NodeService nodeService;
+
+    @Resource
+    NodeConfigSyncAsync nodeConfigSyncAsync;
 
     // 存储所有活跃的 WebSocket 连接（
     private static final CopyOnWriteArraySet<WebSocketSession> activeSessions = new CopyOnWriteArraySet<>();
@@ -260,13 +264,15 @@ public class WebSocketServer extends TextWebSocketHandler {
                     if (version != null) {
                         node.setVersion(version);
                     }
-                    if (http != null) {
+                    // 面板是协议屏蔽的权威来源：更换机器后 agent 会上报 0/0/0，
+                    // 若直接覆盖会把面板里的设置抹掉，之后再也无法恢复，因此仅在面板未设置时采纳节点上报值
+                    if (http != null && isUnset(node.getHttp())) {
                         node.setHttp(Integer.parseInt(http));
                     }
-                    if (tls != null) {
+                    if (tls != null && isUnset(node.getTls())) {
                         node.setTls(Integer.parseInt(tls));
                     }
-                    if (socks != null) {
+                    if (socks != null && isUnset(node.getSocks())) {
                         node.setSocks(Integer.parseInt(socks));
                     }
 
@@ -281,6 +287,8 @@ public class WebSocketServer extends TextWebSocketHandler {
                         res.put("type", "status");
                         res.put("data", 1);
                         broadcastMessage(res.toJSONString());
+
+                        nodeConfigSyncAsync.syncNodeOnline(nodeId);
                     } else {
                         log.info("节点 {} 状态更新失败", nodeId);
                     }
@@ -435,6 +443,10 @@ public class WebSocketServer extends TextWebSocketHandler {
     }
 
 
+
+    private static boolean isUnset(Integer flag) {
+        return flag == null || flag == 0;
+    }
 
     public static GostDto send_msg(Long node_id, Object msg, String type) {
         WebSocketSession nodeSession = nodeSessions.get(node_id);

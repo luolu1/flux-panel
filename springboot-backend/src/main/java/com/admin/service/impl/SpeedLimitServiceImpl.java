@@ -139,7 +139,7 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
         return R.ok();
     }
 
-    private String convertBitsToMBps(Integer speedInBits) {
+    public static String convertBitsToMBps(Integer speedInBits) {
         double mbs = speedInBits / 8.0;
         BigDecimal bd = new BigDecimal(mbs).setScale(1, RoundingMode.HALF_UP);
         return bd.doubleValue() + "";

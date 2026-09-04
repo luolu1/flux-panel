@@ -62,4 +62,19 @@ public class NodeController extends BaseController {
         return nodeService.getInstallCommand(id);
     }
 
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/sync")
+    public R syncConfig(@RequestBody Map<String, Object> params) {
+        Long id = Long.valueOf(params.get("id").toString());
+        return nodeService.pushNodeConfig(id);
+    }
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/sync-all")
+    public R syncAllConfig() {
+        return nodeService.pushAllNodeConfigs();
+    }
+
 }

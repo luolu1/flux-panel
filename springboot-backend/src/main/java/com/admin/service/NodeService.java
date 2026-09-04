@@ -26,4 +26,14 @@ public interface NodeService extends IService<Node> {
 
     R getInstallCommand(Long id);
 
+    /**
+     * 把面板中该节点的配置补齐到节点上，用于机器更换后恢复配置
+     */
+    R pushNodeConfig(Long id);
+
+    /**
+     * 对所有在线节点执行配置补齐
+     */
+    R pushAllNodeConfigs();
+
 }
