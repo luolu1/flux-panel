@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,6 +60,48 @@ public class ForwardController extends BaseController {
     public R forceDelete(@RequestBody Map<String, Object> params) {
         Long id = Long.valueOf(params.get("id").toString());
         return forwardService.forceDeleteForward(id);
+    }
+
+    @LogAnnotation
+    @PostMapping("/batch-delete")
+    public R batchDelete(@RequestBody Map<String, Object> params) {
+        List<Long> ids;
+        try {
+            ids = parseIds(params.get("ids"));
+        } catch (NumberFormatException e) {
+            return R.err(e.getMessage());
+        }
+        boolean force = Boolean.parseBoolean(String.valueOf(params.get("force")));
+        return forwardService.batchDeleteForward(ids, force);
+    }
+
+    @LogAnnotation
+    @PostMapping("/batch-status")
+    public R batchStatus(@RequestBody Map<String, Object> params) {
+        List<Long> ids;
+        try {
+            ids = parseIds(params.get("ids"));
+        } catch (NumberFormatException e) {
+            return R.err(e.getMessage());
+        }
+        boolean resume = Boolean.parseBoolean(String.valueOf(params.get("resume")));
+        return forwardService.batchChangeForwardStatus(ids, resume);
+    }
+
+    private List<Long> parseIds(Object rawIds) {
+        if (!(rawIds instanceof List<?> idList)) {
+            return List.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        for (Object rawId : idList) {
+            if (rawId == null) continue;
+            try {
+                ids.add(Long.valueOf(rawId.toString()));
+            } catch (NumberFormatException e) {
+                throw new NumberFormatException("转发ID不合法: " + rawId);
+            }
+        }
+        return ids;
     }
 
     @LogAnnotation

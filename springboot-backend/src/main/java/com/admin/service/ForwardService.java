@@ -5,6 +5,7 @@ import com.admin.common.dto.ForwardUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.entity.Forward;
 import com.baomidou.mybatisplus.extension.service.IService;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -52,6 +53,22 @@ public interface ForwardService extends IService<Forward> {
      * @return 结果
      */
     R forceDeleteForward(Long id);
+
+    /**
+     * 批量删除端口转发，逐条按单条删除语义处理，返回每条结果
+     * @param ids 转发ID列表
+     * @param force 为 true 时跳过GOST节点验证
+     * @return 包含 total/successCount/failCount/results 的结果
+     */
+    R batchDeleteForward(List<Long> ids, boolean force);
+
+    /**
+     * 批量暂停/开启端口转发，逐条按单条语义处理，返回每条结果
+     * @param ids 转发ID列表
+     * @param resume true 为开启，false 为暂停
+     * @return 包含 total/successCount/failCount/results 的结果
+     */
+    R batchChangeForwardStatus(List<Long> ids, boolean resume);
 
     /**
      * 暂停转发服务

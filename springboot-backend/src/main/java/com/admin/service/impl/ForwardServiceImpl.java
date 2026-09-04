@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +38,9 @@ import java.util.stream.Collectors;
 public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> implements ForwardService {
 
     private static final long BYTES_TO_GB = 1024L * 1024L * 1024L;
+
+    /** 每条转发都要向各入口节点下发指令，单节点最坏 10 秒，限制批量大小避免请求超时 */
+    private static final int BATCH_MAX = 200;
 
     @Resource
     @Lazy
@@ -279,12 +283,14 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
     @Override
     public R deleteForward(Long id) {
+        return deleteForwardInternal(id, getCurrentUserInfo());
+    }
 
-        // 1. 获取当前用户信息
-        UserInfo currentUser = getCurrentUserInfo();
+    /**
+     * 单个删除与批量删除共用。currentUser 由调用方传入，批量删除时只解析一次 JWT。
+     */
+    private R deleteForwardInternal(Long id, UserInfo currentUser) {
 
-
-        // 2. 检查转发是否存在
         Forward forward = validateForwardExists(id, currentUser);
         if (forward == null) {
             return R.err("转发不存在");
@@ -329,6 +335,77 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         forwardPortService.remove(new QueryWrapper<ForwardPort>().eq("forward_id", id));
         this.removeById(id);
         return R.ok();
+    }
+
+    @Override
+    public R batchDeleteForward(List<Long> ids, boolean force) {
+        UserInfo currentUser = getCurrentUserInfo();
+        return runBatch(ids, "删除",
+                id -> force ? forceDeleteForward(id) : deleteForwardInternal(id, currentUser));
+    }
+
+    @Override
+    public R batchChangeForwardStatus(List<Long> ids, boolean resume) {
+        String action = resume ? "开启" : "暂停";
+        int targetStatus = resume ? 1 : 0;
+        String gostMethod = resume ? "ResumeService" : "PauseService";
+        return runBatch(ids, action, id -> changeForwardStatus(id, targetStatus, gostMethod));
+    }
+
+    /**
+     * 名称必须在执行前快照：删除成功后行已不存在，结果列表无法再回查名称。
+     */
+    private R runBatch(List<Long> ids, String action, Function<Long, R> operation) {
+        if (ids == null || ids.isEmpty()) {
+            return R.err("请选择要" + action + "的转发");
+        }
+
+        List<Long> targetIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (targetIds.isEmpty()) {
+            return R.err("请选择要" + action + "的转发");
+        }
+        if (targetIds.size() > BATCH_MAX) {
+            return R.err("单次最多操作 " + BATCH_MAX + " 条转发，请分批操作");
+        }
+
+        Map<Long, String> nameById = new HashMap<>();
+        for (Forward forward : this.listByIds(targetIds)) {
+            nameById.put(forward.getId(), forward.getName());
+        }
+
+        List<JSONObject> results = new ArrayList<>();
+        int successCount = 0;
+        for (Long id : targetIds) {
+            R result;
+            try {
+                result = operation.apply(id);
+            } catch (Exception e) {
+                log.info("批量{}转发 {} 异常: {}", action, id, e.getMessage(), e);
+                result = R.err(e.getMessage() == null ? action + "失败" : e.getMessage());
+            }
+
+            boolean success = result.getCode() == 0;
+            if (success) {
+                successCount++;
+            }
+
+            JSONObject item = new JSONObject();
+            item.put("id", id);
+            item.put("name", nameById.getOrDefault(id, String.valueOf(id)));
+            item.put("success", success);
+            item.put("msg", success ? action + "成功" : result.getMsg());
+            results.add(item);
+        }
+
+        JSONObject data = new JSONObject();
+        data.put("total", targetIds.size());
+        data.put("successCount", successCount);
+        data.put("failCount", targetIds.size() - successCount);
+        data.put("results", results);
+        return R.ok(data);
     }
 
     @Override
