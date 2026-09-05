@@ -78,8 +78,9 @@ git clone git@github.com:luolu1/flux-panel.git
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `IMAGE_TAG` | `2.0.7-beta-custom.1` | 镜像 tag |
-| `IMAGE_PREFIX` | `flux-panel` | 镜像仓库前缀 |
-| `SKIP_BUILD` | 未设置 | 设为 `1` 跳过本地构建，直接拉取已推送的镜像 |
+| `USE_REGISTRY` | 未设置 | 设为 `1` 时改用 GHCR 的多架构镜像，不在本机构建 |
+| `IMAGE_PREFIX` | `flux-panel` | 镜像仓库前缀（`USE_REGISTRY=1` 时默认 `ghcr.io/luolu1`） |
+| `SKIP_BUILD` | 未设置 | 设为 `1` 跳过本地构建 |
 
 官方的 `docker-compose-v4.yml` / `docker-compose-v6.yml` 硬编码了镜像地址，本仓库改为 `${BACKEND_IMAGE:-...}` / `${FRONTEND_IMAGE:-...}`，可直接在 `.env` 里覆盖：
 
@@ -88,11 +89,36 @@ BACKEND_IMAGE=flux-panel/springboot-backend:2.0.7-beta-custom.1
 FRONTEND_IMAGE=flux-panel/vite-frontend:2.0.7-beta-custom.1
 ```
 
+### CPU 架构
+
+**在生产机上本地构建即可，无需关心架构。** 构建产出的镜像天然与构建机架构一致，x86_64 机器构建出 amd64 镜像，ARM 机器构建出 arm64 镜像。项目本身没有平台相关的依赖：`sqlite-jdbc` 的 fat jar 同时内置 `Linux/x86_64` 与 `Linux/aarch64` 原生库，基础镜像（`maven`、`eclipse-temurin`、`node`、`nginx`）也都提供 amd64 与 arm64。
+
+如果不想在生产机上构建（构建约 10 分钟、需要拉取 Maven 与 npm 依赖），可以用 GitHub Actions 预构建的多架构镜像：
+
+```bash
+USE_REGISTRY=1 ./panel_upgrade.sh
+```
+
+镜像发布在 GHCR，`docker pull` 会自动选取匹配本机架构的那一份：
+
+```
+ghcr.io/luolu1/springboot-backend:2.0.7-beta-custom.1
+ghcr.io/luolu1/vite-frontend:2.0.7-beta-custom.1
+```
+
+推送到 `main` 时由 [`docker-build-custom.yml`](.github/workflows/docker-build-custom.yml) 自动构建 `linux/amd64` 与 `linux/arm64`。首次使用需在仓库 Packages 设置里把镜像可见性改为 public，否则拉取需要先 `docker login ghcr.io`。
+
 ### 手动构建
 
 ```bash
 docker build -t flux-panel/springboot-backend:2.0.7-beta-custom.1 ./springboot-backend
 docker build -t flux-panel/vite-frontend:2.0.7-beta-custom.1 ./vite-frontend
+```
+
+跨架构构建（需要 buildx 与 QEMU）：
+
+```bash
+docker buildx build --platform linux/amd64 -t flux-panel/springboot-backend:2.0.7-beta-custom.1 --load ./springboot-backend
 ```
 
 ---

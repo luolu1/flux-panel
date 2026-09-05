@@ -4,18 +4,27 @@
 # 定制版没有任何数据库结构变更（schema.sql 未改动），因此升级只需替换镜像：
 # SQLite 数据卷 sqlite_data 原样保留，转发、节点、用户数据全部不变。
 #
-# 用法：
-#   ./panel_upgrade.sh                     # 在面板部署目录（含 docker-compose.yml）中执行
-#   IMAGE_TAG=my-tag ./panel_upgrade.sh    # 指定镜像 tag
-#   IMAGE_PREFIX=registry.example.com/flux ./panel_upgrade.sh   # 指定镜像仓库前缀
-#   SKIP_BUILD=1 ./panel_upgrade.sh        # 跳过本地构建，直接拉取已推送的镜像
+# 用法（在面板部署目录，即含 docker-compose.yml 与 .env 的目录中执行）：
+#   ./panel_upgrade.sh                       # 本地构建（架构自动匹配当前机器）
+#   USE_REGISTRY=1 ./panel_upgrade.sh        # 改用 GHCR 上的多架构镜像，不本地构建
+#   IMAGE_TAG=my-tag ./panel_upgrade.sh      # 指定镜像 tag
+#   IMAGE_PREFIX=registry.example.com/x ./panel_upgrade.sh   # 指定镜像仓库前缀
 set -e
 
 export LANG=en_US.UTF-8
 export LC_ALL=C
 
 IMAGE_TAG="${IMAGE_TAG:-2.0.7-beta-custom.1}"
-IMAGE_PREFIX="${IMAGE_PREFIX:-flux-panel}"
+GHCR_PREFIX="${GHCR_PREFIX:-ghcr.io/luolu1}"
+
+# USE_REGISTRY=1 时使用 GHCR 的多架构镜像（docker 会自动拉取匹配本机架构的那一份），
+# 否则在本机构建 —— 本机构建天然产出本机架构的镜像，不存在架构不匹配问题。
+if [[ -n "$USE_REGISTRY" ]]; then
+  IMAGE_PREFIX="${IMAGE_PREFIX:-$GHCR_PREFIX}"
+  SKIP_BUILD=1
+else
+  IMAGE_PREFIX="${IMAGE_PREFIX:-flux-panel}"
+fi
 BACKEND_IMAGE="${IMAGE_PREFIX}/springboot-backend:${IMAGE_TAG}"
 FRONTEND_IMAGE="${IMAGE_PREFIX}/vite-frontend:${IMAGE_TAG}"
 
@@ -74,9 +83,11 @@ backup_database() {
 
 build_images() {
   if [[ -n "$SKIP_BUILD" ]]; then
-    echo "⏭️  已设置 SKIP_BUILD，跳过本地构建"
+    echo "⏭️  使用远程镜像，跳过本地构建"
     return
   fi
+
+  echo "🖥️  本机架构：$(uname -m)（本地构建的镜像与本机架构一致）"
   if [[ ! -d "$SCRIPT_DIR/springboot-backend" || ! -d "$SCRIPT_DIR/vite-frontend" ]]; then
     echo "❌ 未在 $SCRIPT_DIR 找到源码目录，无法本地构建。"
     echo "   请在源码仓库内执行本脚本，或设置 SKIP_BUILD=1 直接使用已推送的镜像。"
