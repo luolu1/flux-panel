@@ -108,6 +108,31 @@ ghcr.io/luolu1/vite-frontend:2.0.7-beta-custom.1
 
 推送到 `main` 时由 [`docker-build-custom.yml`](.github/workflows/docker-build-custom.yml) 自动构建 `linux/amd64` 与 `linux/arm64`。首次使用需在仓库 Packages 设置里把镜像可见性改为 public，否则拉取需要先 `docker login ghcr.io`。
 
+### 构建内存要求
+
+前端构建至少需要 **2GB 可用内存**。`vite.config.ts` 关闭了 `minify` 与 `treeshake`（沿用上游配置），产物约 7.5MB，rollup 生成阶段内存占用较高。内存不足时会失败并报 `Reached heap limit Allocation failed - JavaScript heap out of memory` 或被 OOM killer 杀掉（退出码 137）。
+
+Dockerfile 已设置 `NODE_OPTIONS=--max-old-space-size=4096`，但这只是放开 Node 的堆上限，机器本身仍需有足够物理内存。1GB 小机器建议：
+
+```bash
+# 方案一：直接用预构建的多架构镜像，不在本机构建
+USE_REGISTRY=1 ./panel_upgrade.sh
+
+# 方案二：临时加 swap 后再构建
+fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+./panel_upgrade.sh
+swapoff /swapfile && rm -f /swapfile
+```
+
+开启压缩可把构建内存降到 1GB 以内、产物缩小到约 1.95MB（实测功能正常），但这偏离了上游配置，因此未作为默认。需要的话改 `vite-frontend/vite.config.ts`：
+
+```ts
+build: {
+  minify: 'esbuild',
+  rollupOptions: { treeshake: true },
+}
+```
+
 ### 手动构建
 
 ```bash
