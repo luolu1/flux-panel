@@ -10,6 +10,8 @@
 # 用法（在面板部署目录，即含 docker-compose.yml 与 .env 的目录中执行）：
 #   ./panel_upgrade.sh                       # 拉取预构建镜像（推荐，1核1G 可用）
 #   LOCAL_BUILD=1 ./panel_upgrade.sh         # 在本机编译（需 2GB 内存与源码目录）
+#   IMAGE_PREFIX=flux-panel SKIP_LOCAL_BUILD=1 ./panel_upgrade.sh
+#                                            # 用已导入本地的镜像（见 panel_export_images.sh）
 #   IMAGE_TAG=my-tag ./panel_upgrade.sh      # 指定镜像 tag
 #   IMAGE_PREFIX=registry.example.com/x ./panel_upgrade.sh   # 指定镜像仓库前缀
 set -e
@@ -22,7 +24,7 @@ GHCR_PREFIX="${GHCR_PREFIX:-ghcr.io/luolu1}"
 
 # 默认走远程多架构镜像，docker 会自动取匹配本机架构的那一份；
 # LOCAL_BUILD=1 才在本机编译（本机构建天然产出本机架构镜像）。
-if [[ -n "$LOCAL_BUILD" ]]; then
+if [[ -n "$LOCAL_BUILD" || -n "$SKIP_LOCAL_BUILD" ]]; then
   IMAGE_PREFIX="${IMAGE_PREFIX:-flux-panel}"
   USE_REGISTRY=""
 else
@@ -110,6 +112,10 @@ check_build_memory() {
 }
 
 build_images() {
+  if [[ -n "$SKIP_LOCAL_BUILD" ]]; then
+    echo "⏭️  使用本地已有镜像（$IMAGE_PREFIX），不编译也不拉取"
+    return
+  fi
   if [[ -z "$LOCAL_BUILD" ]]; then
     echo "⏭️  使用预构建镜像（$IMAGE_PREFIX），不在本机编译"
     return

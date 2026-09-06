@@ -67,7 +67,7 @@ export_images() {
   echo "下一步："
   echo "   1. 传到目标机：scp $ARCHIVE root@目标机:/root/"
   echo "   2. 在目标机导入：./panel_export_images.sh --load $ARCHIVE"
-  echo "   3. 在面板部署目录升级：SKIP_BUILD=1 ./panel_upgrade.sh"
+  echo "   3. 在面板部署目录升级：IMAGE_PREFIX=flux-panel LOCAL_BUILD=1 SKIP_LOCAL_BUILD=1 ./panel_upgrade.sh"
 }
 
 load_images() {
@@ -85,14 +85,14 @@ load_images() {
   if [[ "$img_arch" != "$host" ]]; then
     echo ""
     echo "❌ 架构不匹配！这些镜像无法在本机运行。"
-    echo "   请在与本机架构相同（${host}）的机器上重新构建，或改用 USE_REGISTRY=1 直接拉取。"
+    echo "   请在与本机架构相同（${host}）的机器上重新构建，或直接用 panel_upgrade.sh 拉取预构建镜像。"
     exit 1
   fi
 
   echo "✅ 架构匹配，导入完成"
   echo ""
   echo "下一步：进入面板部署目录（含 docker-compose.yml 与 .env），执行"
-  echo "   SKIP_BUILD=1 $SCRIPT_DIR/panel_upgrade.sh"
+  echo "   IMAGE_PREFIX=flux-panel SKIP_LOCAL_BUILD=1 $SCRIPT_DIR/panel_upgrade.sh"
 }
 
 check_docker

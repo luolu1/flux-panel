@@ -64,42 +64,38 @@
 
 **无任何数据库结构变更**（`schema.sql` 未改动），升级就是替换镜像，`sqlite_data` 数据卷原样保留，转发、节点、用户数据全部不变。节点端 agent 二进制未改动，**无需重装节点**。
 
-在面板部署目录（执行过 `panel_install.sh`、含 `docker-compose.yml` 与 `.env` 的目录）执行：
+默认使用预构建的多架构镜像，**不在本机编译**，1 核 1G 的小机器可直接升级。在面板部署目录（执行过 `panel_install.sh`、含 `docker-compose.yml` 与 `.env` 的目录）执行：
 
 ```bash
-git clone git@github.com:luolu1/flux-panel.git
-./flux-panel/panel_upgrade.sh
+git clone https://github.com/luolu1/flux-panel.git /opt/flux-panel-src
+cd /你的面板部署目录
+/opt/flux-panel-src/panel_upgrade.sh
 ```
 
-脚本会依次：备份数据库与配置 → 本地构建镜像 → 改写 compose 的 image 引用 → 优雅重启 → 等待健康检查。失败时提示回滚方式。
+脚本会依次：备份数据库与配置（含 WAL checkpoint）→ 改写 compose 的 image 引用 → 拉取镜像 → 优雅重启 → 等待健康检查。失败时提示回滚方式。
+
+实测 1 核 1G 场景下升级全程额外内存占用约 450MB（主要是 Docker 解压镜像），面板运行时占用与升级前一致。
 
 可用环境变量：
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `IMAGE_TAG` | `2.0.7-beta-custom.1` | 镜像 tag |
-| `USE_REGISTRY` | 未设置 | 设为 `1` 时改用 GHCR 的多架构镜像，不在本机构建 |
-| `IMAGE_PREFIX` | `flux-panel` | 镜像仓库前缀（`USE_REGISTRY=1` 时默认 `ghcr.io/luolu1`） |
-| `SKIP_BUILD` | 未设置 | 设为 `1` 跳过本地构建 |
+| `LOCAL_BUILD` | 未设置 | 设为 `1` 时在本机编译（需 2GB 内存），默认拉取预构建镜像 |
+| `IMAGE_PREFIX` | `ghcr.io/luolu1` | 镜像仓库前缀（`LOCAL_BUILD=1` 时默认 `flux-panel`） |
 
 官方的 `docker-compose-v4.yml` / `docker-compose-v6.yml` 硬编码了镜像地址，本仓库改为 `${BACKEND_IMAGE:-...}` / `${FRONTEND_IMAGE:-...}`，可直接在 `.env` 里覆盖：
 
 ```env
-BACKEND_IMAGE=flux-panel/springboot-backend:2.0.7-beta-custom.1
-FRONTEND_IMAGE=flux-panel/vite-frontend:2.0.7-beta-custom.1
+BACKEND_IMAGE=ghcr.io/luolu1/springboot-backend:2.0.7-beta-custom.1
+FRONTEND_IMAGE=ghcr.io/luolu1/vite-frontend:2.0.7-beta-custom.1
 ```
 
 ### CPU 架构
 
-**在生产机上本地构建即可，无需关心架构。** 构建产出的镜像天然与构建机架构一致，x86_64 机器构建出 amd64 镜像，ARM 机器构建出 arm64 镜像。项目本身没有平台相关的依赖：`sqlite-jdbc` 的 fat jar 同时内置 `Linux/x86_64` 与 `Linux/aarch64` 原生库，基础镜像（`maven`、`eclipse-temurin`、`node`、`nginx`）也都提供 amd64 与 arm64。
+**无需关心架构。** 预构建镜像同时提供 `linux/amd64` 与 `linux/arm64`，`docker pull` 自动选取匹配本机的那一份。项目本身没有平台相关依赖：`sqlite-jdbc` 的 fat jar 同时内置 `Linux/x86_64` 与 `Linux/aarch64` 原生库，基础镜像（`maven`、`eclipse-temurin`、`node`、`nginx`）也都提供 amd64 与 arm64。若选择本机编译，产出的镜像天然与本机架构一致。
 
-如果不想在生产机上构建（构建约 10 分钟、需要拉取 Maven 与 npm 依赖），可以用 GitHub Actions 预构建的多架构镜像：
-
-```bash
-USE_REGISTRY=1 ./panel_upgrade.sh
-```
-
-镜像发布在 GHCR，`docker pull` 会自动选取匹配本机架构的那一份：
+镜像发布在 GHCR：
 
 ```
 ghcr.io/luolu1/springboot-backend:2.0.7-beta-custom.1
@@ -136,19 +132,19 @@ SKIP_BUILD=1 /path/to/panel_upgrade.sh
 
 导入时会比对镜像与本机架构，不一致直接报错退出，不会留下跑不起来的容器。
 
-### 构建内存要求
+### 本机编译（可选，需 2GB 内存）
 
-前端构建至少需要 **2GB 可用内存**。`vite.config.ts` 关闭了 `minify` 与 `treeshake`（沿用上游配置），产物约 7.5MB，rollup 生成阶段内存占用较高。内存不足时会失败并报 `Reached heap limit Allocation failed - JavaScript heap out of memory` 或被 OOM killer 杀掉（退出码 137）。
-
-Dockerfile 已设置 `NODE_OPTIONS=--max-old-space-size=4096`，但这只是放开 Node 的堆上限，机器本身仍需有足够物理内存。1GB 小机器建议：
+只有想自行改代码时才需要。前端构建至少需要 **2GB 可用内存**：`vite.config.ts` 关闭了 `minify` 与 `treeshake`（沿用上游配置），产物约 7.5MB，rollup 生成阶段峰值内存较高，不足时会报 `Reached heap limit Allocation failed` 或被 OOM killer 杀掉（退出码 137）。脚本会在构建前检查内存并给出提示。
 
 ```bash
-# 方案一：直接用预构建的多架构镜像，不在本机构建
-USE_REGISTRY=1 ./panel_upgrade.sh
+LOCAL_BUILD=1 /opt/flux-panel-src/panel_upgrade.sh
+```
 
-# 方案二：临时加 swap 后再构建
+1G 机器若坚持本机编译，可临时加 swap：
+
+```bash
 fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-./panel_upgrade.sh
+LOCAL_BUILD=1 /opt/flux-panel-src/panel_upgrade.sh
 swapoff /swapfile && rm -f /swapfile
 ```
 
