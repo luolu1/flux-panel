@@ -4,9 +4,12 @@
 # 定制版没有任何数据库结构变更（schema.sql 未改动），因此升级只需替换镜像：
 # SQLite 数据卷 sqlite_data 原样保留，转发、节点、用户数据全部不变。
 #
+# 默认直接拉取预构建的多架构镜像（amd64/arm64 自动匹配），不在本机编译：
+# 面板运行时只占几百 MB，但前端构建峰值需要 2GB 内存，1 核 1G 的机器无法本地构建。
+#
 # 用法（在面板部署目录，即含 docker-compose.yml 与 .env 的目录中执行）：
-#   ./panel_upgrade.sh                       # 本地构建（架构自动匹配当前机器）
-#   USE_REGISTRY=1 ./panel_upgrade.sh        # 改用 GHCR 上的多架构镜像，不本地构建
+#   ./panel_upgrade.sh                       # 拉取预构建镜像（推荐，1核1G 可用）
+#   LOCAL_BUILD=1 ./panel_upgrade.sh         # 在本机编译（需 2GB 内存与源码目录）
 #   IMAGE_TAG=my-tag ./panel_upgrade.sh      # 指定镜像 tag
 #   IMAGE_PREFIX=registry.example.com/x ./panel_upgrade.sh   # 指定镜像仓库前缀
 set -e
@@ -17,13 +20,14 @@ export LC_ALL=C
 IMAGE_TAG="${IMAGE_TAG:-2.0.7-beta-custom.1}"
 GHCR_PREFIX="${GHCR_PREFIX:-ghcr.io/luolu1}"
 
-# USE_REGISTRY=1 时使用 GHCR 的多架构镜像（docker 会自动拉取匹配本机架构的那一份），
-# 否则在本机构建 —— 本机构建天然产出本机架构的镜像，不存在架构不匹配问题。
-if [[ -n "$USE_REGISTRY" ]]; then
-  IMAGE_PREFIX="${IMAGE_PREFIX:-$GHCR_PREFIX}"
-  SKIP_BUILD=1
-else
+# 默认走远程多架构镜像，docker 会自动取匹配本机架构的那一份；
+# LOCAL_BUILD=1 才在本机编译（本机构建天然产出本机架构镜像）。
+if [[ -n "$LOCAL_BUILD" ]]; then
   IMAGE_PREFIX="${IMAGE_PREFIX:-flux-panel}"
+  USE_REGISTRY=""
+else
+  IMAGE_PREFIX="${IMAGE_PREFIX:-$GHCR_PREFIX}"
+  USE_REGISTRY=1
 fi
 BACKEND_IMAGE="${IMAGE_PREFIX}/springboot-backend:${IMAGE_TAG}"
 FRONTEND_IMAGE="${IMAGE_PREFIX}/vite-frontend:${IMAGE_TAG}"
@@ -85,16 +89,37 @@ backup_database() {
   fi
 }
 
+check_build_memory() {
+  local avail_mb total_mb swap_mb
+  avail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  total_mb=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  swap_mb=$(awk '/SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  echo "🧠 内存：可用 ${avail_mb}MB / 总计 ${total_mb}MB，swap ${swap_mb}MB"
+
+  # 前端 rollup 生成阶段实测需要约 2GB；不足时 npm run build 会被 OOM killer 杀掉
+  if (( avail_mb + swap_mb < 2048 )); then
+    echo "❌ 可用内存加 swap 不足 2GB，前端构建会因 OOM 失败。"
+    echo ""
+    echo "   建议直接使用预构建镜像（无需编译，1核1G 即可）："
+    echo "     去掉 LOCAL_BUILD 重新执行本脚本"
+    echo ""
+    echo "   若确实要本机构建，可临时加 swap："
+    echo "     fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+    exit 1
+  fi
+}
+
 build_images() {
-  if [[ -n "$SKIP_BUILD" ]]; then
-    echo "⏭️  使用远程镜像，跳过本地构建"
+  if [[ -z "$LOCAL_BUILD" ]]; then
+    echo "⏭️  使用预构建镜像（$IMAGE_PREFIX），不在本机编译"
     return
   fi
 
   echo "🖥️  本机架构：$(uname -m)（本地构建的镜像与本机架构一致）"
+  check_build_memory
   if [[ ! -d "$SCRIPT_DIR/springboot-backend" || ! -d "$SCRIPT_DIR/vite-frontend" ]]; then
     echo "❌ 未在 $SCRIPT_DIR 找到源码目录，无法本地构建。"
-    echo "   请在源码仓库内执行本脚本，或设置 SKIP_BUILD=1 直接使用已推送的镜像。"
+    echo "   请在源码仓库内执行本脚本，或去掉 LOCAL_BUILD 改用预构建镜像。"
     exit 1
   fi
 
@@ -142,8 +167,7 @@ ensure_local_images() {
   done
   if [[ $missing -eq 1 ]]; then
     echo ""
-    echo "   请先构建（去掉 SKIP_BUILD 重跑），或用 panel_export_images.sh --load 导入镜像，"
-    echo "   或改用 USE_REGISTRY=1 从远程仓库拉取。"
+    echo "   请去掉 LOCAL_BUILD 重跑以使用预构建镜像，或先自行构建/导入该镜像。"
     echo "   旧容器已停止，可用以下命令先恢复旧版本："
     echo "     cp $BACKUP_DIR/docker-compose.yml.* $COMPOSE_FILE && $DOCKER_CMD up -d"
     exit 1
@@ -158,7 +182,7 @@ ensure_local_images() {
   esac
   if [[ "$img_arch" != "$host_arch" ]]; then
     echo "❌ 镜像架构 ${img_arch} 与本机 ${host_arch} 不一致，无法启动。"
-    echo "   请在架构相同的机器上构建，或改用 USE_REGISTRY=1。"
+    echo "   请在架构相同的机器上构建，或去掉 LOCAL_BUILD 改用预构建镜像。"
     exit 1
   fi
   echo "✅ 使用本地镜像（架构：${img_arch}）"

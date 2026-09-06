@@ -7,16 +7,17 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'springboot-backend/**'
-      - 'vite-frontend/**'
-      - '.github/workflows/docker-build-custom.yml'
   workflow_dispatch:
     inputs:
       tag:
         description: '镜像 tag'
         required: false
         default: '2.0.7-beta-custom.1'
+      no_cache:
+        description: '禁用构建缓存（产物疑似过旧时使用）'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -43,6 +44,7 @@ jobs:
           if [ -z "$TAG" ]; then TAG="${{ env.IMAGE_TAG }}"; fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "repo=$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -57,14 +59,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 缓存 key 带上 commit sha：源码变了必定重新构建。
+      # 只按 scope 缓存会让 COPY . . 之后的层命中旧缓存，产出内容陈旧的镜像。
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          no-cache: ${{ github.event.inputs.no_cache == 'true' }}
           tags: |
             ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.component }}:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.component }}:${{ steps.meta.outputs.sha }}
             ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.component }}:latest
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          cache-from: |
+            type=gha,scope=${{ matrix.component }}-${{ github.sha }}
+            type=gha,scope=${{ matrix.component }}-base
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ github.sha }}
+
+      - name: Verify image contents
+        run: |
+          IMG="ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.component }}:${{ steps.meta.outputs.sha }}"
+          echo "校验 $IMG (linux/amd64)"
+          CID=$(docker create --platform linux/amd64 "$IMG")
+          FAIL=0
+          if [ "${{ matrix.component }}" = "vite-frontend" ]; then
+            docker cp "$CID":/usr/share/nginx/html/assets /tmp/assets
+            for kw in '批量推送配置' '批量暂停' '复制入口' '个转发' 'batch-status' 'node/sync'; do
+              if grep -q "$kw" /tmp/assets/*.js; then echo "  OK   $kw"; else echo "  MISS $kw"; FAIL=1; fi
+            done
+          else
+            docker cp "$CID":/app/app.jar /tmp/app.jar
+            for c in NodeConfigSyncAsync NodeConfigPusher NodeSyncContext NodeSyncResult NodeSyncExecutorConfig; do
+              if unzip -l /tmp/app.jar | grep -q "$c.class"; then echo "  OK   $c"; else echo "  MISS $c"; FAIL=1; fi
+            done
+          fi
+          docker rm -f "$CID" >/dev/null
+          if [ "$FAIL" = "1" ]; then echo "镜像内容缺少预期的定制代码，构建视为失败"; exit 1; fi
