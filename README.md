@@ -108,6 +108,34 @@ ghcr.io/luolu1/vite-frontend:2.0.7-beta-custom.1
 
 推送到 `main` 时由 [`docker-build-custom.yml`](.github/workflows/docker-build-custom.yml) 自动构建 `linux/amd64` 与 `linux/arm64`。首次使用需在仓库 Packages 设置里把镜像可见性改为 public，否则拉取需要先 `docker login ghcr.io`。
 
+### 在另一台机器构建后导入（离线 / 内存不足）
+
+生产机内存不足或不能访问外网时，可在另一台**架构相同**的机器上构建，再把镜像打包传过去。
+
+构建机：
+
+```bash
+git clone https://github.com/luolu1/flux-panel.git && cd flux-panel
+./panel_export_images.sh            # 本地构建后导出
+./panel_export_images.sh --pull     # 或从 GHCR 拉取后导出（不构建）
+```
+
+生成 `flux-panel-images-<tag>.tar.gz`（约 207MB）。传到生产机：
+
+```bash
+scp flux-panel-images-*.tar.gz root@生产机:/root/
+```
+
+生产机：
+
+```bash
+./panel_export_images.sh --load flux-panel-images-<tag>.tar.gz
+cd /面板部署目录
+SKIP_BUILD=1 /path/to/panel_upgrade.sh
+```
+
+导入时会比对镜像与本机架构，不一致直接报错退出，不会留下跑不起来的容器。
+
 ### 构建内存要求
 
 前端构建至少需要 **2GB 可用内存**。`vite.config.ts` 关闭了 `minify` 与 `treeshake`（沿用上游配置），产物约 7.5MB，rollup 生成阶段内存占用较高。内存不足时会失败并报 `Reached heap limit Allocation failed - JavaScript heap out of memory` 或被 OOM killer 杀掉（退出码 137）。
