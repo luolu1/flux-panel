@@ -86,8 +86,9 @@ jobs:
           FAIL=0
           if [ "${{ matrix.component }}" = "vite-frontend" ]; then
             docker cp "$CID":/usr/share/nginx/html/assets /tmp/assets
-            for kw in '批量推送配置' '批量暂停' '复制入口' '个转发' 'batch-status' 'node/sync'; do
-              if grep -q "$kw" /tmp/assets/*.js; then echo "  OK   $kw"; else echo "  MISS $kw"; FAIL=1; fi
+            # 复制按钮的文案是运行时拼接的 `复制${label}`，产物里不会出现字面量「复制入口」
+            for kw in '批量推送配置' '批量暂停' '复制${label}' '个转发' 'batch-status' 'node/sync'; do
+              if grep -qF "$kw" /tmp/assets/*.js; then echo "  OK   $kw"; else echo "  MISS $kw"; FAIL=1; fi
             done
           else
             docker cp "$CID":/app/app.jar /tmp/app.jar
