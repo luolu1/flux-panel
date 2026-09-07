@@ -7,9 +7,10 @@ export LC_ALL=C
 
 
 
-# 全局下载地址配置
-DOCKER_COMPOSEV4_URL="https://github.com/bqlpfy/flux-panel/releases/download/2.0.7-beta/docker-compose-v4.yml"
-DOCKER_COMPOSEV6_URL="https://github.com/bqlpfy/flux-panel/releases/download/2.0.7-beta/docker-compose-v6.yml"
+# 全局下载地址配置：指向定制版仓库，compose 里的镜像默认即定制版镜像
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/luolu1/flux-panel/main}"
+DOCKER_COMPOSEV4_URL="${REPO_RAW}/docker-compose-v4.yml"
+DOCKER_COMPOSEV6_URL="${REPO_RAW}/docker-compose-v6.yml"
 
 COUNTRY=$(curl -s https://ipinfo.io/country)
 if [ "$COUNTRY" = "CN" ]; then

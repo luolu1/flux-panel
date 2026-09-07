@@ -60,11 +60,36 @@
 
 ---
 
+## 全新安装
+
+与官方一样一键装，只是脚本地址换成这个仓库。1 核 1G 即可，不在本机编译，直接拉预构建镜像。
+
+```bash
+curl -L https://raw.githubusercontent.com/luolu1/flux-panel/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+```
+
+脚本会下载本仓库的 `docker-compose.yml`（镜像默认 `ghcr.io/luolu1/*:2.0.7-beta-custom.1`），询问前端/后端端口后启动。默认管理员账号 `admin_user` / `admin_user`，首次登录后请立即修改。
+
+节点端安装命令仍在面板「节点监控」卡片上点「安装」复制即可，agent 二进制未改动，与官方节点完全兼容。
+
+---
+
 ## 从官方 2.0.7-beta 升级
 
 **无任何数据库结构变更**（`schema.sql` 未改动），升级就是替换镜像，`sqlite_data` 数据卷原样保留，转发、节点、用户数据全部不变。节点端 agent 二进制未改动，**无需重装节点**。
 
-默认使用预构建的多架构镜像，**不在本机编译**，1 核 1G 的小机器可直接升级。在面板部署目录（执行过 `panel_install.sh`、含 `docker-compose.yml` 与 `.env` 的目录）执行：
+默认使用预构建的多架构镜像，**不在本机编译**，1 核 1G 的小机器可直接升级。
+
+在面板部署目录（执行过 `panel_install.sh`、含 `docker-compose.yml` 与 `.env` 的目录）执行：
+
+```bash
+# 不需要 clone 整个仓库，只下载升级脚本
+curl -L https://raw.githubusercontent.com/luolu1/flux-panel/main/panel_upgrade.sh -o panel_upgrade.sh
+chmod +x panel_upgrade.sh
+./panel_upgrade.sh
+```
+
+也可以 clone 仓库后执行：
 
 ```bash
 git clone https://github.com/luolu1/flux-panel.git /opt/flux-panel-src
