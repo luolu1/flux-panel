@@ -1,6 +1,7 @@
 package com.admin.service.impl;
 
 import com.admin.common.dto.*;
+import com.admin.common.task.NodeConfigSyncAsync;
 
 import com.admin.common.lang.R;
 import com.admin.common.utils.GostUtil;
@@ -19,6 +20,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.annotation.Resource;
 import java.util.*;
@@ -52,7 +55,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     ForwardPortService forwardPortService;
 
     @Resource
-    private com.admin.common.task.NodeConfigSyncAsync nodeConfigSyncAsync;
+    NodeConfigSyncAsync nodeConfigSyncAsync;
 
     @Override
     public R createTunnel(TunnelDto tunnelDto) {
@@ -344,10 +347,12 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         List<ChainTunnel> oldTopology = chainTunnelService.list(
                 new QueryWrapper<ChainTunnel>().eq("tunnel_id", existingTunnel.getId()));
         Set<Long> oldNodeIds = oldTopology.stream().map(ChainTunnel::getNodeId).collect(Collectors.toSet());
-        cleanupOldTopology(existingTunnel, oldTopology);
 
         List<Forward> forwards = forwardService.list(
                 new QueryWrapper<Forward>().eq("tunnel_id", existingTunnel.getId()));
+        List<String> forwardServiceNames = buildForwardServiceNames(existingTunnel, forwards);
+        chainTunnelService.remove(new QueryWrapper<ChainTunnel>().eq("tunnel_id", existingTunnel.getId()));
+
         Set<Long> newEntryIds = requested.stream().filter(ct -> ct.getChainType() == 1)
                 .map(ChainTunnel::getNodeId).collect(Collectors.toSet());
         reassignForwardPorts(forwards, newEntryIds);
@@ -370,19 +375,47 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             StringBuilder in_ip = new StringBuilder();
             List<ChainTunnel> chainTunnels = requested.stream().filter(ct -> ct.getChainType() == 1).toList();
             for (ChainTunnel chainTunnel : chainTunnels) {
-                Node node = nodeService.getById(chainTunnel.getNodeId());
-                if (node == null)return R.err("隧道节点数据错误，部分节点不存在");
-                in_ip.append(node.getServerIp()).append(",");
+                in_ip.append(requestedNodes.get(chainTunnel.getNodeId()).getServerIp()).append(",");
             }
             in_ip.deleteCharAt(in_ip.length() - 1);
             tunnel.setInIp(in_ip.toString());
         }
 
         this.updateById(tunnel);
+
         Set<Long> syncNodeIds = new HashSet<>(requestedNodeIds);
         syncNodeIds.addAll(oldNodeIds);
-        nodeConfigSyncAsync.syncNodes(syncNodeIds);
+        // 必须等事务提交后再下发：同步任务用独立连接重新读取拓扑，
+        // 提交前读到的还是旧的 chain_tunnel / forward_port，会把配置推成旧拓扑
+        afterCommit(() -> {
+            deleteOldTopologyConfigs(existingTunnel, oldTopology, forwardServiceNames);
+            nodeConfigSyncAsync.syncNodes(syncNodeIds);
+        });
         return R.ok();
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
+    }
+
+    private List<String> buildForwardServiceNames(Tunnel tunnel, List<Forward> forwards) {
+        List<String> names = new ArrayList<>();
+        for (Forward forward : forwards) {
+            UserTunnel userTunnel = userTunnelService.getOne(new QueryWrapper<UserTunnel>()
+                    .eq("user_id", forward.getUserId()).eq("tunnel_id", tunnel.getId()));
+            names.add(forward.getId() + "_" + forward.getUserId() + "_"
+                    + (userTunnel == null ? 0 : userTunnel.getId()));
+        }
+        return names;
     }
 
     private List<ChainTunnel> buildUpdatedTopology(Tunnel tunnel, TunnelUpdateDto dto) {
@@ -424,34 +457,29 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         return nodes;
     }
 
-    private void cleanupOldTopology(Tunnel tunnel, List<ChainTunnel> oldTopology) {
-        List<Forward> forwards = forwardService.list(new QueryWrapper<Forward>().eq("tunnel_id", tunnel.getId()));
+    private void deleteOldTopologyConfigs(Tunnel tunnel, List<ChainTunnel> oldTopology,
+                                          List<String> forwardServiceNames) {
         for (ChainTunnel chainTunnel : oldTopology) {
-            if (chainTunnel.getNodeId() == null) continue;
-            if (chainTunnel.getChainType() == 1) {
-                for (Forward forward : forwards) {
-                    UserTunnel userTunnel = userTunnelService.getOne(new QueryWrapper<UserTunnel>()
-                            .eq("user_id", forward.getUserId()).eq("tunnel_id", tunnel.getId()));
-                    String serviceName = forward.getId() + "_" + forward.getUserId() + "_"
-                            + (userTunnel == null ? 0 : userTunnel.getId());
+            if (chainTunnel.getNodeId() == null || chainTunnel.getChainType() == null) continue;
+            int chainType = chainTunnel.getChainType();
+
+            if (chainType == 1) {
+                for (String serviceName : forwardServiceNames) {
                     JSONArray services = new JSONArray();
                     services.add(serviceName + "_tcp");
                     services.add(serviceName + "_udp");
                     GostUtil.DeleteService(chainTunnel.getNodeId(), services);
                 }
-                GostUtil.DeleteChains(chainTunnel.getNodeId(), "chains_" + tunnel.getId());
-                continue;
             }
-            if (chainTunnel.getChainType() == 1 || chainTunnel.getChainType() == 2) {
+            if (chainType == 1 || chainType == 2) {
                 GostUtil.DeleteChains(chainTunnel.getNodeId(), "chains_" + tunnel.getId());
             }
-            if (chainTunnel.getChainType() == 2 || chainTunnel.getChainType() == 3) {
+            if (chainType == 2 || chainType == 3) {
                 JSONArray services = new JSONArray();
                 services.add(tunnel.getId() + "_tls");
                 GostUtil.DeleteService(chainTunnel.getNodeId(), services);
             }
         }
-        chainTunnelService.remove(new QueryWrapper<ChainTunnel>().eq("tunnel_id", tunnel.getId()));
     }
 
     private void reassignForwardPorts(List<Forward> forwards, Set<Long> newEntryIds) {
