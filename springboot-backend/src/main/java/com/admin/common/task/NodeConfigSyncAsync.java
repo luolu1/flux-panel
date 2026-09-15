@@ -23,6 +23,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -90,6 +92,14 @@ public class NodeConfigSyncAsync {
      */
     public NodeSyncResult pushNodeConfig(Long nodeId) {
         return syncNode(nodeId, NodeSyncContext.unknown(), true, "手动推送");
+    }
+
+    @Async(NodeSyncExecutorConfig.NODE_SYNC_EXECUTOR)
+    public void syncNodes(Collection<Long> nodeIds) {
+        if (nodeIds == null) return;
+        for (Long nodeId : new ArrayList<>(nodeIds)) {
+            if (nodeId != null) syncNode(nodeId, NodeSyncContext.unknown(), true, "隧道编辑");
+        }
     }
 
     private NodeSyncResult syncNode(Long nodeId, NodeSyncContext ctx, boolean force, String reason) {
