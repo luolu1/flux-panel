@@ -52,7 +52,20 @@
 
 **入口/目标点击复制**：点文本即复制，右侧另有独立的复制图标。复制的是完整地址而非界面上省略后的文本——多地址的行显示 `1.1.1.1:53 (+1)`，复制出来是完整的两行。多地址的行额外有列表图标，点开才是地址弹窗。
 
-### 4. 修复复制功能失效
+### 4. 隧道支持完整编辑
+
+上游的隧道编辑只能改名称、流量计费和入口 IP，**节点拓扑改不了**——换机器只能删掉隧道重建，而删隧道会连带删掉它下面的所有转发。
+
+现在可以直接编辑入口、转发链、出口节点，保存后：
+
+- **隧道 ID、转发 ID、用户权限、流量统计全部保留**，不是删了重建
+- 先清理旧节点上的转发链、链服务和转发服务，避免残留配置
+- 仍在入口列表里的节点保留原端口；新增的入口节点自动分配端口；被移除的入口节点删除其端口记录
+- 保存后对新旧节点集合触发配置同步，**该隧道下已有的转发会自动下发到新拓扑**
+
+新拓扑里有离线节点也允许保存（换机器时新机器可能还没上线），这些节点的配置会在上线时由既有的上线同步补齐。隧道类型（端口转发/隧道转发）仍不可修改。
+
+### 5. 修复复制功能失效
 
 `navigator.clipboard` 只在安全上下文（HTTPS 或 localhost）下存在。通过 `http://IP:端口` 访问面板时该 API 为 `undefined`，调用直接抛异常，**所有页面的复制都会失败**——这是上游的既有问题，不限于转发页。
 
@@ -208,6 +221,8 @@ docker buildx build --platform linux/amd64 -t flux-panel/springboot-backend:2.0.
 | `/node/sync` | `{id: number}` | 管理员 | 向单个节点补齐配置 |
 | `/node/sync-all` | 无 | 管理员 | 向所有在线节点补齐配置 |
 
+`/tunnel/update` 为上游既有接口，本版本扩展了请求体：新增 `inNodeId` / `chainNodes` / `outNodeId`，用于提交完整拓扑（`chainNodes` 为二维数组，外层是跳数）。只传原有字段时行为不变。
+
 批量接口统一返回：
 
 ```json
@@ -246,6 +261,8 @@ common/dto/NodeSyncResult.java         推送结果
 config/NodeSyncExecutorConfig.java     节点同步专用线程池
 service/impl/ForwardServiceImpl.java   批量删除 / 批量状态变更
 service/impl/NodeServiceImpl.java      pushNodeConfig / pushAllNodeConfigs
+service/impl/TunnelServiceImpl.java    隧道完整拓扑编辑（清理旧配置、端口迁移、触发同步）
+common/dto/TunnelUpdateDto.java        更新请求体扩展入口/转发链/出口
 common/utils/WebSocketServer.java      协议屏蔽以面板为权威源
 ```
 
@@ -255,6 +272,7 @@ common/utils/WebSocketServer.java      协议屏蔽以面板为权威源
 
 ```
 src/pages/forward.tsx      隧道分组、单行布局、批量操作、地址复制
+src/pages/tunnel.tsx       隧道编辑开放拓扑控件
 src/pages/node.tsx         推送配置按钮与结果弹窗
 src/utils/clipboard.ts     剪贴板兜底
 src/api/index.ts           新接口封装与类型
