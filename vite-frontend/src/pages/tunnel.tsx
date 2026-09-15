@@ -163,10 +163,10 @@ export default function TunnelPage() {
       newErrors.inNodeId = '请至少选择一个入口节点';
     } else {
       // 验证所有选择的节点都在线
-      const offlineNodes = form.inNodeId.filter(item => {
+      const offlineNodes = !isEdit ? form.inNodeId.filter(item => {
         const node = nodes.find(n => n.id === item.nodeId);
         return node && node.status !== 1;
-      });
+      }) : [];
       if (offlineNodes.length > 0) {
         newErrors.inNodeId = '所有入口节点必须在线';
       }
@@ -182,10 +182,10 @@ export default function TunnelPage() {
         newErrors.outNodeId = '请至少选择一个出口节点';
       } else {
         // 验证所有选择的节点都在线
-        const offlineNodes = form.outNodeId.filter(item => {
+        const offlineNodes = !isEdit ? form.outNodeId.filter(item => {
           const node = nodes.find(n => n.id === item.nodeId);
           return node && node.status !== 1;
-        });
+        }) : [];
         if (offlineNodes.length > 0) {
           newErrors.outNodeId = '所有出口节点必须在线';
         }
@@ -222,7 +222,7 @@ export default function TunnelPage() {
     setModalOpen(true);
   };
 
-  // 编辑隧道 - 只能修改部分字段
+  // 编辑隧道
   const handleEdit = (tunnel: Tunnel) => {
     setIsEdit(true);
     
@@ -693,7 +693,7 @@ export default function TunnelPage() {
                     {isEdit ? '编辑隧道' : '新增隧道'}
                   </h2>
                   <p className="text-small text-default-500">
-                    {isEdit ? '编辑时只能修改隧道名称、流量计算和流量倍率' : '创建新的隧道配置'}
+                    {isEdit ? '可修改隧道信息及入口、转发链、出口节点，已有转发会自动重新同步' : '创建新的隧道配置'}
                   </p>
                 </ModalHeader>
                 <ModalBody>
@@ -790,7 +790,7 @@ export default function TunnelPage() {
                          selectionMode="multiple"
                          selectedKeys={form.inNodeId.map(ct => ct.nodeId.toString())}
                          disabledKeys={[
-                           ...nodes.filter(node => node.status !== 1).map(node => node.id.toString()),
+                           ...(!isEdit ? nodes.filter(node => node.status !== 1).map(node => node.id.toString()) : []),
                            ...(form.outNodeId || []).map(ct => ct.nodeId.toString()),
                            ...getSelectedChainNodeIds().map(id => id.toString())
                          ]}
@@ -806,7 +806,6 @@ export default function TunnelPage() {
                          isInvalid={!!errors.inNodeId}
                          errorMessage={errors.inNodeId}
                          variant="bordered"
-                         isDisabled={isEdit}
                        >
                         {nodes.map((node) => (
                           <SelectItem 
@@ -860,7 +859,6 @@ export default function TunnelPage() {
                                 ]
                               }));
                             }}
-                            isDisabled={isEdit}
                             startContent={
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -889,7 +887,6 @@ export default function TunnelPage() {
                                       variant="light"
                                       isIconOnly
                                       onPress={() => removeChainNode(groupIndex)}
-                                      isDisabled={isEdit}
                                     >
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -906,7 +903,7 @@ export default function TunnelPage() {
                                         selectionMode="multiple"
                                         selectedKeys={groupNodes.filter(ct => ct.nodeId !== -1).map(ct => ct.nodeId.toString())}
                                         disabledKeys={[
-                                          ...nodes.filter(node => node.status !== 1).map(node => node.id.toString()),
+                                          ...(!isEdit ? nodes.filter(node => node.status !== 1).map(node => node.id.toString()) : []),
                                           ...form.inNodeId.map(ct => ct.nodeId.toString()),
                                           ...(form.outNodeId || []).map(ct => ct.nodeId.toString()),
                                           // 排除其他跳数已选的节点
@@ -932,7 +929,6 @@ export default function TunnelPage() {
                                         }}
                                         variant="bordered"
                                         size="sm"
-                                        isDisabled={isEdit}
                                         classNames={{
                                           label: "text-xs",
                                           value: "text-sm"
@@ -991,7 +987,6 @@ export default function TunnelPage() {
                                       }}
                                       variant="bordered"
                                       size="sm"
-                                      isDisabled={isEdit}
                                       classNames={{
                                         label: "text-xs",
                                         value: "text-sm"
@@ -1018,7 +1013,6 @@ export default function TunnelPage() {
                                       }}
                                       variant="bordered"
                                       size="sm"
-                                      isDisabled={isEdit}
                                       classNames={{
                                         label: "text-xs",
                                         value: "text-sm"
@@ -1058,7 +1052,7 @@ export default function TunnelPage() {
                               selectionMode="multiple"
                               selectedKeys={form.outNodeId ? form.outNodeId.filter(ct => ct.nodeId !== -1).map(ct => ct.nodeId.toString()) : []}
                               disabledKeys={[
-                                ...nodes.filter(node => node.status !== 1).map(node => node.id.toString()),
+                                ...(!isEdit ? nodes.filter(node => node.status !== 1).map(node => node.id.toString()) : []),
                                 ...form.inNodeId.map(ct => ct.nodeId.toString()),
                                 ...getSelectedChainNodeIds().map(id => id.toString())
                               ]}
@@ -1083,7 +1077,6 @@ export default function TunnelPage() {
                               isInvalid={!!errors.outNodeId}
                               errorMessage={errors.outNodeId}
                               variant="bordered"
-                              isDisabled={isEdit}
                               classNames={{
                                 label: "text-xs",
                                 value: "text-sm"
@@ -1154,7 +1147,6 @@ export default function TunnelPage() {
                             isInvalid={!!errors.protocol}
                             errorMessage={errors.protocol}
                             variant="bordered"
-                            isDisabled={isEdit}
                             classNames={{
                               label: "text-xs",
                               value: "text-sm"
@@ -1197,7 +1189,6 @@ export default function TunnelPage() {
                               }
                             }}
                             variant="bordered"
-                            isDisabled={isEdit}
                             classNames={{
                               label: "text-xs",
                               value: "text-sm"
@@ -1638,4 +1629,4 @@ export default function TunnelPage() {
       </div>
     
   );
-} 
+}
