@@ -31,7 +31,7 @@ public interface TunnelService extends IService<Tunnel> {
     R getAllTunnels();
 
     /**
-     * 更新隧道（只允许修改名称、流量计费、端口范围）
+     * 更新隧道及入口、转发链、出口拓扑
      * @param tunnelUpdateDto 更新数据
      * @return 结果
      */
