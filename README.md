@@ -96,10 +96,12 @@ curl -L https://raw.githubusercontent.com/luolu1/flux-panel/main/panel_install.s
 在面板部署目录（执行过 `panel_install.sh`、含 `docker-compose.yml` 与 `.env` 的目录）执行：
 
 ```bash
-# 不需要 clone 整个仓库，只下载升级脚本
-curl -L https://raw.githubusercontent.com/luolu1/flux-panel/main/panel_upgrade.sh -o panel_upgrade.sh
-chmod +x panel_upgrade.sh
-./panel_upgrade.sh
+# 在面板部署目录执行；默认拉取 amd64/arm64 预构建镜像，不在本机编译
+tmp_script=$(mktemp)
+curl -fsSL https://raw.githubusercontent.com/luolu1/flux-panel/main/panel_upgrade.sh -o "$tmp_script"
+chmod +x "$tmp_script"
+"$tmp_script"
+rm -f "$tmp_script"
 ```
 
 也可以 clone 仓库后执行：
@@ -165,7 +167,7 @@ scp flux-panel-images-*.tar.gz root@生产机:/root/
 ```bash
 ./panel_export_images.sh --load flux-panel-images-<tag>.tar.gz
 cd /面板部署目录
-SKIP_BUILD=1 /path/to/panel_upgrade.sh
+IMAGE_PREFIX=flux-panel SKIP_LOCAL_BUILD=1 /path/to/panel_upgrade.sh
 ```
 
 导入时会比对镜像与本机架构，不一致直接报错退出，不会留下跑不起来的容器。

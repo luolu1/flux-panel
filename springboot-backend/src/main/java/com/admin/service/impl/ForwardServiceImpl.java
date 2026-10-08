@@ -173,6 +173,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         forward.setUpdatedTime(System.currentTimeMillis());
         List<JSONObject> success = new ArrayList<>();
         List<ChainTunnel> chainTunnels = chainTunnelService.list(new QueryWrapper<ChainTunnel>().eq("tunnel_id", tunnel.getId()).eq("chain_type", 1));
+        if (chainTunnels.isEmpty()) {
+            return R.err("隧道没有可用入口节点");
+        }
         chainTunnels = get_port(chainTunnels, forwardDto.getInPort(), 0L);
         this.save(forward);
 
@@ -188,6 +191,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
             Node node = nodeService.getById(chainTunnel.getNodeId());
             if (node == null) {
+                rollbackCreatedForward(forward, success);
                 return R.err("部分节点不存在");
             }
             GostDto gostDto = GostUtil.AddAndUpdateService(serviceName, limiter, node, forward, forwardPort, tunnel, "AddService");
@@ -197,19 +201,23 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 data.put("name", serviceName);
                 success.add(data);
             } else {
-                this.removeById(forward.getId());
-                forwardPortService.remove(new QueryWrapper<ForwardPort>().eq("forward_id", forward.getId()));
-                for (JSONObject jsonObject : success) {
-                    JSONArray se = new JSONArray();
-                    se.add(jsonObject.getString("name") + "_tcp");
-                    se.add(jsonObject.getString("name") + "_udp");
-                    GostUtil.DeleteService(jsonObject.getLong("node_id"), se);
-                    return R.err(gostDto.getMsg());
-                }
+                rollbackCreatedForward(forward, success);
+                return R.err(gostDto.getMsg());
             }
 
         }
         return R.ok();
+    }
+
+    private void rollbackCreatedForward(Forward forward, List<JSONObject> success) {
+        removeById(forward.getId());
+        forwardPortService.remove(new QueryWrapper<ForwardPort>().eq("forward_id", forward.getId()));
+        for (JSONObject jsonObject : success) {
+            JSONArray services = new JSONArray();
+            services.add(jsonObject.getString("name") + "_tcp");
+            services.add(jsonObject.getString("name") + "_udp");
+            GostUtil.DeleteService(jsonObject.getLong("node_id"), services);
+        }
     }
 
     @Override
