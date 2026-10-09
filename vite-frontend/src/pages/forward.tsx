@@ -1243,7 +1243,11 @@ export default function ForwardPage() {
 
   // 传感器配置 - 使用默认配置避免错误
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 拖动 8 像素才激活拖拽，让点击事件能够触发
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
